@@ -1,0 +1,22 @@
+{
+  "name": "tailclaude",
+  "version": "1.0.0",
+  "description": "Human-readable tail -f for Claude Code session JSONL files",
+  "bin": {
+    "tailclaude": "./cli.mjs"
+  },
+  "type": "module",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "tail",
+    "jsonl",
+    "session",
+    "monitoring",
+    "cli"
+  ],
+  "license": "MIT",
+  "files": [
+    "cli.mjs"
+  ]
+}
