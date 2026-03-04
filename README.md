@@ -3,10 +3,10 @@
 **`tail -f` for Claude Code sessions.** See what Claude is doing in real-time, from another terminal.
 
 ```
-npx tailclaude
+npx @lukebechtel/tailclaude
 ```
 
-<img alt="screenshot placeholder" src="https://img.shields.io/badge/zero_dependencies-black?style=flat-square"> <img alt="npm" src="https://img.shields.io/npm/v/tailclaude?style=flat-square&color=blue"> <img alt="node" src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square">
+<img alt="screenshot placeholder" src="https://img.shields.io/badge/zero_dependencies-black?style=flat-square"> <img alt="npm" src="https://img.shields.io/npm/v/@lukebechtel/tailclaude?style=flat-square&color=blue"> <img alt="node" src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square">
 
 ---
 
@@ -29,13 +29,13 @@ It auto-detects the most recent session, follows for live updates, and just work
 
 ```bash
 # Run directly (no install needed)
-npx tailclaude
+npx @lukebechtel/tailclaude
 
 # Or with bun
-bunx tailclaude
+bunx @lukebechtel/tailclaude
 
 # Or install globally
-npm i -g tailclaude
+npm i -g @lukebechtel/tailclaude
 ```
 
 ## Usage

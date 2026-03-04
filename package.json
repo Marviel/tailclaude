@@ -1,5 +1,5 @@
 {
-  "name": "tailclaude",
+  "name": "@lukebechtel/tailclaude",
   "version": "1.0.0",
   "description": "Human-readable tail -f for Claude Code session JSONL files",
   "bin": {
