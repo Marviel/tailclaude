@@ -6,6 +6,9 @@
     "tailclaude": "./cli.mjs"
   },
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "claude",
     "claude-code",
@@ -15,8 +18,13 @@
     "monitoring",
     "cli"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Marviel/tailclaude.git"
+  },
   "license": "MIT",
   "files": [
-    "cli.mjs"
+    "cli.mjs",
+    "README.md"
   ]
 }
