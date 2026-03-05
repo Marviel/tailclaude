@@ -58,6 +58,9 @@ tailclaude --no-follow
 
 # AI-powered summaries for large tool results (requires claude CLI)
 tailclaude --ai-summary
+
+# Live AI status digests every 30 seconds
+tailclaude --ai-updates
 ```
 
 ## Options
@@ -68,6 +71,7 @@ tailclaude --ai-summary
 | `-f, --follow` | Follow the file for new entries (default) |
 | `--no-follow` | Print entries and exit |
 | `--ai-summary` | Summarize large tool results (>3KB) using Claude Haiku |
+| `--ai-updates` | Print an AI status digest every 30 seconds |
 | `--no-color` | Disable colored output |
 | `-h, --help` | Show help |
 
@@ -81,6 +85,25 @@ When `--ai-summary` is passed, tool results larger than 3KB get a one-line summa
 
 This requires the [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) to be installed. If you're using `tailclaude`, you probably already have it. Without `--ai-summary`, no external tools are needed.
 
+## AI Status Updates
+
+`--ai-updates` is the killer feature. Every 30 seconds, Haiku reads the recent session activity and prints a status digest:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ AI Status Update (14:35:02)                                │
+├────────────────────────────────────────────────────────────┤
+│ **Working on**: Refactoring upload route error handling     │
+│ in src/routes/upload.ts, adding try/catch blocks.          │
+│ **Progress**: Making steady progress — 2 edits applied,    │
+│ moving to tests next.                                      │
+│ **Next**: Will likely read/update test file for upload     │
+│ route and run the test suite.                              │
+└────────────────────────────────────────────────────────────┘
+```
+
+Think of it as a manager watching over Claude's shoulder and giving you the TL;DR. Great for long-running tasks where you want to check in without reading every line.
+
 ## How it works
 
 - Scans `~/.claude/projects/` for session JSONL files
@@ -91,7 +114,7 @@ This requires the [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) t
 ## Requirements
 
 - Node.js >= 18
-- Claude CLI (only if using `--ai-summary`)
+- Claude CLI (only if using `--ai-summary` or `--ai-updates`)
 
 ## License
 

@@ -8,6 +8,7 @@
 //   npx tailclaude -n 10 ffbb               # last 10 entries, match prefix
 //   npx tailclaude --no-follow latest        # one-shot, most recent session
 //   npx tailclaude --ai-summary ffbb89d7    # Haiku summaries for large tool results
+//   npx tailclaude --ai-updates              # periodic AI status digests every 30s
 
 import { readFileSync, statSync, readdirSync, openSync, readSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -231,6 +232,116 @@ function createSummarizer() {
   };
 }
 
+// ── AI status updates ────────────────────────────────────────────────────────
+
+function digestEntry(entry) {
+  const etype = entry.type ?? "unknown";
+  if (etype === "queue-operation") return null;
+
+  const msg = entry.message ?? {};
+  const role = msg.role ?? etype;
+  const content = msg.content ?? [];
+
+  if (typeof content === "string") {
+    return `[${role}] ${content.slice(0, 200)}`;
+  }
+  if (!Array.isArray(content)) return null;
+
+  const parts = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const bt = block.type ?? "";
+    if (bt === "text") {
+      parts.push(block.text?.slice(0, 200) ?? "");
+    } else if (bt === "thinking") {
+      parts.push(`<thinking>${(block.thinking ?? "").slice(0, 300)}</thinking>`);
+    } else if (bt === "tool_use") {
+      const inp = block.input ?? {};
+      const arg = inp.command ?? inp.file_path ?? inp.pattern ?? inp.query ?? inp.description ?? "";
+      parts.push(`[tool:${block.name ?? "?"}] ${String(arg).slice(0, 150)}`);
+    } else if (bt === "tool_result") {
+      const raw = contentText(block);
+      parts.push(`[result] ${raw.slice(0, 200)}`);
+    }
+  }
+  if (parts.length === 0) return null;
+  return `[${role}] ${parts.join(" | ")}`;
+}
+
+function buildTranscriptDigest(entries, maxChars = 8000) {
+  const lines = [];
+  // Work backwards from most recent, keep within budget
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const line = digestEntry(entries[i]);
+    if (line) lines.unshift(line);
+  }
+  let result = lines.join("\n");
+  if (result.length > maxChars) {
+    result = result.slice(-maxChars);
+    const nl = result.indexOf("\n");
+    if (nl !== -1) result = result.slice(nl + 1);
+  }
+  return result;
+}
+
+function checkClaudeCli() {
+  const which = spawnSync("which", ["claude"], { encoding: "utf-8" });
+  if (which.status !== 0) {
+    console.error(
+      `${red("⚠")} This feature requires the 'claude' CLI to be installed.`
+    );
+    process.exit(1);
+  }
+}
+
+function runAiUpdate(digest) {
+  const prompt = `You are a concise status reporter watching a Claude Code session in real-time.
+
+Below is a transcript of recent activity (most recent at bottom). Based on this, give a brief status update covering:
+
+1. **Working on**: What is Claude currently doing? (1 sentence)
+2. **Progress**: How is it going — stuck, making progress, wrapping up? (1 sentence)
+3. **Next**: What will it probably do next? (1 sentence)
+
+Be specific — mention file names, function names, tool names. Keep the entire response under 4 lines. No preamble.
+
+--- TRANSCRIPT ---
+${digest}`;
+
+  try {
+    const result = spawnSync("claude", ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], {
+      encoding: "utf-8",
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (result.status === 0 && result.stdout) {
+      return result.stdout.trim();
+    }
+  } catch {
+    // Silently skip
+  }
+  return null;
+}
+
+function printAiUpdate(text) {
+  const now = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  const bar = "─".repeat(60);
+  console.log("");
+  console.log(magenta(`┌${bar}┐`));
+  console.log(magenta(`│`) + bold(` AI Status Update `) + dim(`(${now})`) + " ".repeat(Math.max(0, 60 - 19 - now.length - 2)) + magenta(`│`));
+  console.log(magenta(`├${bar}┤`));
+  for (const line of text.split("\n")) {
+    const stripped = line.trim();
+    if (!stripped) continue;
+    // Pad line to fit box, truncate if too long
+    const display = stripped.length > 58 ? stripped.slice(0, 57) + "…" : stripped;
+    console.log(magenta(`│`) + ` ${display}` + " ".repeat(Math.max(0, 59 - display.length)) + magenta(`│`));
+  }
+  console.log(magenta(`└${bar}┘`));
+  console.log("");
+}
+
 // ── JSONL reading ───────────────────────────────────────────────────────────
 
 function readAllEntries(filePath) {
@@ -250,8 +361,9 @@ function readAllEntries(filePath) {
 
 // ── file tailing ────────────────────────────────────────────────────────────
 
-function tailFollow(filePath, n, aiSummary, noFollow) {
+function tailFollow(filePath, n, aiSummary, noFollow, aiUpdates) {
   const summarizer = aiSummary ? createSummarizer() : null;
+  if (aiUpdates) checkClaudeCli();
 
   const entries = readAllEntries(filePath);
   const show = entries.slice(-n);
@@ -264,12 +376,25 @@ function tailFollow(filePath, n, aiSummary, noFollow) {
     }
   }
 
-  if (noFollow) return;
+  // For --ai-updates in --no-follow mode, run one digest on the shown entries
+  if (noFollow) {
+    if (aiUpdates && show.length > 0) {
+      const digest = buildTranscriptDigest(show);
+      if (digest) {
+        const update = runAiUpdate(digest);
+        if (update) printAiUpdate(update);
+      }
+    }
+    return;
+  }
 
   console.log(dim(`\n── following ${basename(filePath)} (Ctrl+C to stop) ──\n`));
 
   let filePos = statSync(filePath).size;
   let buf = "";
+
+  // Accumulate recent entries for AI updates
+  const recentEntries = aiUpdates ? entries.slice(-50) : [];
 
   const poll = () => {
     let curSize;
@@ -282,6 +407,7 @@ function tailFollow(filePath, n, aiSummary, noFollow) {
 
     if (curSize < filePos) {
       filePos = 0;
+      if (aiUpdates) recentEntries.length = 0;
       console.log(yellow("── file truncated, re-reading ──"));
     }
 
@@ -301,6 +427,11 @@ function tailFollow(filePath, n, aiSummary, noFollow) {
         try {
           const entry = JSON.parse(line);
           console.log(renderEntry(entry, aiSummary, summarizer));
+          if (aiUpdates) {
+            recentEntries.push(entry);
+            // Keep a sliding window
+            if (recentEntries.length > 100) recentEntries.splice(0, recentEntries.length - 80);
+          }
         } catch {
           console.log(`${red("⚠")} ${truncate(line)}`);
         }
@@ -309,6 +440,19 @@ function tailFollow(filePath, n, aiSummary, noFollow) {
   };
 
   setInterval(poll, 500);
+
+  // AI status update every 30 seconds
+  if (aiUpdates) {
+    let lastDigestHash = "";
+    setInterval(() => {
+      if (recentEntries.length === 0) return;
+      const digest = buildTranscriptDigest(recentEntries);
+      if (!digest || digest === lastDigestHash) return;
+      lastDigestHash = digest;
+      const update = runAiUpdate(digest);
+      if (update) printAiUpdate(update);
+    }, 30000);
+  }
 
   process.on("SIGINT", () => {
     console.log(dim("\n── stopped ──"));
@@ -426,6 +570,7 @@ function main() {
         follow: { type: "boolean", short: "f", default: true },
         "no-follow": { type: "boolean", default: false },
         "ai-summary": { type: "boolean", default: false },
+        "ai-updates": { type: "boolean", default: false },
         "no-color": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -447,12 +592,16 @@ Usage:
   tailclaude -n 10 ffbb               last 10 entries, match prefix
   tailclaude --no-follow latest        one-shot, most recent session
   tailclaude --ai-summary ffbb89d7    AI summaries for large tool results
+  tailclaude --ai-updates              periodic AI status digests every 30s
 
 Options:
   -n <count>       Number of recent entries to show (default: 20)
   -f, --follow     Follow the file for new entries (default: true)
   --no-follow      Show entries and exit
   --ai-summary     Use Claude Haiku to summarize large tool results (>3K)
+                   Requires 'claude' CLI to be installed
+  --ai-updates     Print an AI-generated status digest every 30 seconds
+                   covering what Claude is working on, progress, and next steps
                    Requires 'claude' CLI to be installed
   --no-color       Disable colored output
   -h, --help       Show this help`);
@@ -466,11 +615,12 @@ Options:
   const n = parseInt(args.values.n, 10) || 20;
   const noFollow = args.values["no-follow"];
   const aiSummary = args.values["ai-summary"];
+  const aiUpdates = args.values["ai-updates"];
   const file = args.positionals[0] ?? null;
 
   const resolved = resolveSession(file);
   console.error(dim(`Session: ${resolved}`));
-  tailFollow(resolved, n, aiSummary, noFollow);
+  tailFollow(resolved, n, aiSummary, noFollow, aiUpdates);
 }
 
 main();
